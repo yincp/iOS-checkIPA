@@ -47,6 +47,7 @@ import re
 import zipfile
 import plistlib
 import optparse
+import json
 
 DEFAULT_ENCODING = 'utf-8'
 VERSION_NUMBER = '1.5'
@@ -304,7 +305,8 @@ class IntegrityCheck(object):
 
         jobj = {'code': 0, 'data': self.data, 'profile': self.profile, 'ipa': self.ipa_info,
                 'warnings': report_warnings, 'errors': report_errors}
-        pprint(jobj)
+        # pprint(jobj)
+        print json.dumps(jobj, cls=MyJsonEncoder, indent=4)
     # end output_json
 
 
@@ -689,6 +691,15 @@ class ParseIPA(object):
 
 # end ParseIPA class
 
+
+class MyJsonEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.__str__()
+        if isinstance(obj, plistlib.Data):
+            return obj.__repr__()
+        return json.JSONEncoder.default(self, obj)
+# end MyJsonEncoder class
 
 def get_options():
     version_info = 'checkipa: version %s' % (VERSION_NUMBER)
