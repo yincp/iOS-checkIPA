@@ -257,7 +257,7 @@ class IntegrityCheck(object):
             ipa_type = 'Enterprise'
         else:
             ipa_type = 'unknown distribution type'
-            report_errors.append({'label': 'Distribution', 'description': 'unknown distribution type'})
+            report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
         txt.append('  Distribution Profile Type: %s' % (ipa_type))
 
         if len(provisioned_devices) > 0:
@@ -306,7 +306,7 @@ class IntegrityCheck(object):
             ipa_type = 'Enterprise'
         else:
             ipa_type = 'unknown distribution type'
-            report_errors.append({'label': 'Distribution', 'description': 'unknown distribution type'})
+            report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
         self.ipa_info['ipa_type'] = ipa_type
 
         jobj = {'code': 0, 'data': self.data, 'profile': self.profile, 'ipa': self.ipa_info,
@@ -678,6 +678,7 @@ class ParseIPA(object):
 
     plist_file_rx = re.compile(r'Payload/.+?\.app/Info.plist$')
     plist_misnamed_payload_file_rx = re.compile(r'payload/.+?\.app/Info.plist$')
+    plist_misnamed_payload_file_as_Applications_rx = re.compile(r'Applications/.+?\.app/Info.plist$', re.I)
     provision_file_rx = re.compile(r'\bembedded.mobileprovision$')
     xml_rx = re.compile(r'<\??xml')
     provision_xml_rx = re.compile(r'<\?xml.+</plist>', re.DOTALL)
@@ -697,6 +698,8 @@ class ParseIPA(object):
             regx = ParseIPA.plist_file_rx
         elif filetype == 'Misnamed_Payload_Check':
             regx = ParseIPA.plist_misnamed_payload_file_rx
+        elif filetype == 'Misnamed_Payload_as_Applications_Check':
+            regx = ParseIPA.plist_misnamed_payload_file_as_Applications_rx
         else:
             regx = ParseIPA.provision_file_rx
 
@@ -716,7 +719,7 @@ class ParseIPA(object):
 
         data = {}
         if provision_filename == '':
-            self.errors.append('embedded.mobileprovision file not found in IPA')
+            self.errors.append({'code': -2001, 'label': 'Provision', 'description': 'embedded.mobileprovision file not found in IPA'})
         else:
             content = zip_obj.read(provision_filename)
             match = ParseIPA.provision_xml_rx.search(content)
@@ -724,7 +727,7 @@ class ParseIPA(object):
                 provision_xml_content = match.group()
                 data = plistlib.readPlistFromString(provision_xml_content)
             else:
-                self.errors.append('unable to parse embedded.mobileprovision file')
+                self.errors.append({'code': -2002, 'label': 'Provision', 'description': 'unable to parse embedded.mobileprovision file'})
 
         self.provision_data = data
     # end extract_provision_data
@@ -737,9 +740,11 @@ class ParseIPA(object):
         data = {}
         if plist_filename == '':
             if self.get_filename_from_ipa('Misnamed_Payload_Check')['filename'] != '':
-                self.errors.append("Payload folder is misnamed 'payload' (lower-case p). Rename to 'Payload'")
+                self.errors.append({'code': -2003, 'label': 'Payload', 'description': "Payload folder is misnamed 'payload' (lower-case p). Rename to 'Payload'"})
+            elif self.get_filename_from_ipa('Misnamed_Payload_as_Applications_Check')['filename'] != '':
+                self.errors.append({'code': -2004, 'label': 'Payload', 'description': 'Found Applications directory instead of Payload'})
             else:
-                self.errors.append('Info.plist file not found in IPA')
+                self.errors.append({'code': -2005, 'label': 'PList', 'description': 'Info.plist file not found in IPA'})
         else:
             content = zip_obj.read(plist_filename)
             if (ParseIPA.xml_rx.match(content)):
@@ -780,9 +785,30 @@ class MyJsonEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 # end MyJsonEncoder class
 
+class MyOptionParser(optparse.OptionParser):
+    def format_epilog(self, formatter):
+        return self.epilog
+# end MyOptionParser class
+
 def get_options():
+
+    error_in_output = '''
+For json output, error numbers as follow:
+    -1001	Distribution    unknown distribution type
+    -2001	Provision	embedded.mobileprovision file not found in IPA
+    -2002	Provision	unable to parse embedded.mobileprovision file
+    -2003	Payload		Payload folder is misnamed 'payload' (lower-case p). Rename to 'Payload'
+    -2004	Payload		Found Applications directory instead of Payload
+    -2005	Plist		Info.plist file not found in IPA
+    -9001	Checkipa	valid input filename not provided
+    -9002	Checkipa	icon file can not be a directory
+    -9003	Checkipa	not a valid zip archive
+    -9004	Checkipa	The program 'plutil' is currently not installed
+
+'''
+
     version_info = 'checkipa: version %s' % (VERSION_NUMBER)
-    optp = optparse.OptionParser(version=version_info)
+    optp = MyOptionParser(version=version_info, epilog=error_in_output)
 
     optp.add_option('-i', '--ipafile', action='store', dest='input_file',
                     help='''provide IPA filename
@@ -803,7 +829,29 @@ def get_options():
                     ''')
 
     optp.add_option('-x', '--extract-icon', action='store', dest='icon_file',
-                    help='specifid filename which icon will be saved')
+                    help='''specifid filename which icon will be saved
+
+
+                    ''')
+
+    optp.set_usage('checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>]')
+    optp.set_description('''Uesed to check and extract infomations from Info.plist and mobileprovision in ipa file,
+forked from https://github.com/apperian/iOS-checkIPA.
+In addtion, json output and extracting icon option are added by Yincp.
+                    ''')
+
+    just_to_read = '''For output errors in json file, error numbers as follow:
+    -1001	Distribution	unknown distribution type
+    -2001	Provision		embedded.mobileprovision file not found in IPA
+    -2002	Provision		unable to parse embedded.mobileprovision file
+    -2003	Payload			Payload folder is misnamed 'payload' (lower-case p). Rename to 'Payload'
+    -2004	Payload			Found Applications directory instead of Payload
+    -2005	Plist			Info.plist file not found in IPA
+    -9001	Checkipa		valid input filename not provided
+    -9002	Checkipa		icon file can not be a directory
+    -9003	Checkipa		not a valid zip archive
+    -9004	Checkipa		The program 'plutil' is currently not installed
+                    '''
 
     opts_args = optp.parse_args()
     return opts_args[0]
@@ -892,7 +940,7 @@ def main():
             ipa_filename = ''
 
     if not os.path.exists(ipa_filename):
-        errors.append('valid input filename not provided')
+        errors.append({'code': -9001, 'label': 'Checkipa', 'description': 'valid input filename not provided'})
 
     # ignore the verbose and check_udids option if jformat is set
     if jformat:
@@ -902,7 +950,7 @@ def main():
     # check whether icon_file is a directory
     if icon_file is not None:
         if os.path.isdir(icon_file):
-            errors.append('icon file can not be a directory')
+            errors.append({'code': -9002, 'label': 'Checkipa', 'description': 'icon file can not be a directory'})
 
     #---------------------------------------------------------------------
     # Instantiate class and perform basic checks before parsing
@@ -911,7 +959,7 @@ def main():
         parse = ParseIPA(ipa_filename)
 
         if not parse.is_valid_zip_archive():
-            errors.append('not a valid zip archive [%s]' % (ipa_filename))
+            errors.append({'code': -9003, 'label': 'Checkipa', 'description': 'not a valid zip archive [%s]' % (ipa_filename)})
 
         # Mac OS already should have the plutil command utility installed.
         # The following message is primarily for (Debian-based) Linux systems.
@@ -919,7 +967,7 @@ def main():
         if retval != 0:
             msg = "The program 'plutil' is currently not installed. You can install it by typing:\n"
             msg += '           sudo apt-get install libplist-utils'
-            errors.append(msg)
+            errors.append({'code': -9004, 'label': 'Checkipa', 'description': msg})
 
     #---------------------------------------------------------------------
     # print out pre-parse errors
@@ -930,8 +978,8 @@ def main():
         else:
             print('')
             for error in errors:
-                print('    Error: %s' % (error))
-            print("""\n    Usage: $ checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>]
+                print('    Error: %s' % (error['description']))
+            print("""\n    Usage: checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>]
         -i --ipafile <filename>         specify a ipa file
         -u --udids <udids>              check where every udid is in ipa's mobileprovision file. multi-udids seperated by a Blank.
         -v --verbose                    output verbose infomations
