@@ -5,6 +5,7 @@
 # the results.
 #
 # Copyright (c) 2012 by Apperian, Inc. All rights reserved.
+# Copyright (c) 2015 yincp@126.com
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -50,7 +51,7 @@ import optparse
 import json
 
 DEFAULT_ENCODING = 'utf-8'
-VERSION_NUMBER = '1.5'
+VERSION_NUMBER = '1.6'
 
 
 # debugging only...
