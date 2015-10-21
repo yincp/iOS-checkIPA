@@ -49,9 +49,12 @@ import zipfile
 import plistlib
 import optparse
 import json
+import subprocess
+import platform
+import uuid
 
 DEFAULT_ENCODING = 'utf-8'
-VERSION_NUMBER = '1.6'
+VERSION_NUMBER = '1.7'
 
 
 # debugging only...
@@ -120,6 +123,7 @@ class IntegrityCheck(object):
         self.errors = {}
         self.ipa_info = {}
         self.icon_info = {}
+        self.signature = []
 
         self._initialize_results_data()
 
@@ -133,10 +137,54 @@ class IntegrityCheck(object):
         if params['icon_file'] is not None:
             self.save_icon()
 
+        if len(self.profile) == 0:
+            self.detect_exec_signature_when_no_provision()
+
         if self.jformat:
             self.output_json()
         else:
             self.output_report()
+
+
+    def detect_exec_signature_when_no_provision(self):
+        if platform.system() == 'Darwin':
+            exec_file = self.data['CFBundleExecutable']
+            zip_obj = zipfile.ZipFile(self.ipa_filename, 'r')
+            regx = re.compile(r'Payload/[^/]+\.app/%s' % exec_file)
+            while True:
+                tmp_file = os.path.join('/tmp', str(uuid.uuid1()))
+                if not os.path.exists(tmp_file):
+                    break
+
+            filenames = zip_obj.namelist()
+            found = False
+            for fname in filenames:
+                if regx.search(fname):
+                    output = open(tmp_file, 'wb')
+                    output.write(zip_obj.read(fname))
+                    output.close()
+                    found = True
+                    break
+            zip_obj.close()
+
+            if found:
+                cmd = 'codesign -vv -d "%s"' % tmp_file
+                self.signature = execute_cmd(cmd)
+
+        else:
+            zip_obj = zipfile.ZipFile(self.ipa_filename, 'r')
+            filenames = zip_obj.namelist()
+            found = False
+            for fname in filenames:
+                if fname == 'iTunesMetadata.plist':
+                    found = True
+                    break
+            zip_obj.close()
+            if found:
+                self.signature.append('Authority=Apple iPhone OS Application Signing')
+            else:
+                self.signature.append(': no signature')
+
 
 
     def detect_errors(self):
@@ -170,7 +218,7 @@ class IntegrityCheck(object):
             results.append({'label': 'AppID',
                             'description': 'formatted incorrectly'})
 
-        if self.errors['appid_bundleseed_mismatch']:
+        if len(self.profile) > 0 and self.errors['appid_bundleseed_mismatch']:
             appid_parts = self.profile['Entitlements']['application-identifier'].split('.', 1)
             appid_suffix = appid_parts[1]
             bundleid_val = self.data['CFBundleIdentifier']
@@ -193,7 +241,7 @@ class IntegrityCheck(object):
             results.append({'label': 'Distribution',
                             'description': 'no distribution profile found'})
 
-        if self.errors['expire_date_past']:
+        if len(self.profile) > 0 and self.errors['expire_date_past']:
             exp_desc = '%s is in the past' % (self.profile['ExpirationDate'])
             results.append({'label': 'Expiration Date', 'description': exp_desc})
 
@@ -216,7 +264,7 @@ class IntegrityCheck(object):
             results.append({'label': 'Distribution',
                             'description': dist_warn_desc})
 
-        if self.warnings['expire_date_coming']:
+        if len(self.profile) > 0 and self.warnings['expire_date_coming']:
             exp_desc = '%s is rapidly approaching' % (self.profile['ExpirationDate'])
             results.append({'label': 'Expiration Date', 'description': exp_desc})
 
@@ -249,7 +297,7 @@ class IntegrityCheck(object):
         if 'CFBundleVersion' in self.data:
             txt.append('  Version: %s' % (self.data['CFBundleVersion']))
 
-        if ('ExpirationDate' in self.profile):
+        if len(self.profile) > 0 and ('ExpirationDate' in self.profile):
             txt.append('  Expiration Date: %s' % (self.profile['ExpirationDate']))
 
         if self.ipa_info['adhoc'] and not self.ipa_info['enterprise']:
@@ -257,8 +305,19 @@ class IntegrityCheck(object):
         elif self.ipa_info['enterprise'] and not self.ipa_info['adhoc']:
             ipa_type = 'Enterprise'
         else:
-            ipa_type = 'unknown distribution type'
-            report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
+            jb_or_itunes_found = False
+            if len(self.signature):
+                signature_str = ';'.join(self.signature)
+                if re.search(r': no signature', signature_str):
+                    jb_or_itunes_found = True
+                    ipa_type = 'NotSigned'
+                elif re.search(r'Authority=Apple iPhone OS Application Signing', signature_str):
+                    jb_or_itunes_found = True
+                    ipa_type = 'iTunes'
+
+            if not jb_or_itunes_found:
+                ipa_type = 'unknown distribution type'
+                report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
         txt.append('  Distribution Profile Type: %s' % (ipa_type))
 
         if len(provisioned_devices) > 0:
@@ -306,8 +365,19 @@ class IntegrityCheck(object):
         elif self.ipa_info['enterprise'] and not self.ipa_info['adhoc']:
             ipa_type = 'Enterprise'
         else:
-            ipa_type = 'unknown distribution type'
-            report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
+            jb_or_itunes_found = False
+            if len(self.signature):
+                signature_str = ';'.join(self.signature)
+                if re.search(r': no signature', signature_str):
+                    jb_or_itunes_found = True
+                    ipa_type = 'NotSigned'
+                elif re.search(r'Authority=Apple iPhone OS Application Signing', signature_str):
+                    jb_or_itunes_found = True
+                    ipa_type = 'iTunes'
+
+            if not jb_or_itunes_found:
+                ipa_type = 'unknown distribution type'
+                report_errors.append({'code': -1001, 'label': 'Distribution', 'description': 'unknown distribution type'})
         self.ipa_info['ipa_type'] = ipa_type
 
         jobj = {'code': 0, 'data': self.data, 'profile': self.profile, 'ipa': self.ipa_info,
@@ -391,7 +461,7 @@ class IntegrityCheck(object):
     # end get_icon
 
     def get_provisioned_devices(self):
-        if 'ProvisionedDevices' in self.profile:
+        if len(self.profile) > 0 and 'ProvisionedDevices' in self.profile:
             return self.profile['ProvisionedDevices']
         else:
             return []
@@ -406,7 +476,7 @@ class IntegrityCheck(object):
         self.check_expiration_date()
 
     def check_expiration_date(self):
-        if ('ExpirationDate' in self.profile):
+        if len(self.profile) > 0 and ('ExpirationDate' in self.profile):
             warning_period_in_days = 14
             expire_date = self.profile['ExpirationDate']
             difference_date = expire_date - datetime.datetime.today()
@@ -426,7 +496,7 @@ class IntegrityCheck(object):
     #         or not. For now, we're choosing warnings as if we're
     #         in a developer context.
     def check_dist_profile(self):
-        if 'get-task-allow' in self.profile['Entitlements']:
+        if len(self.profile) > 0 and 'get-task-allow' in self.profile['Entitlements']:
             if self.profile['Entitlements']['get-task-allow']:  # boolean, should be False
                 self.warnings['dist_dev'] = True
         else:
@@ -436,7 +506,7 @@ class IntegrityCheck(object):
     def check_push(self):
         appid = None
 
-        if 'Entitlements' in self.profile:
+        if len(self.profile) > 0 and 'Entitlements' in self.profile:
             if 'application-identifier' in self.profile['Entitlements']:
                 appid = self.profile['Entitlements']['application-identifier']
             else:
@@ -444,7 +514,7 @@ class IntegrityCheck(object):
         else:
             self.warnings['push'] = True
 
-        if 'Entitlements' in self.profile:
+        if len(self.profile) > 0 and 'Entitlements' in self.profile:
             if 'aps-environment' not in self.profile['Entitlements']:
                 self.warnings['push'] = True
                 self.warnings['push_apsenv'] = True
@@ -467,7 +537,7 @@ class IntegrityCheck(object):
         bundleid = None
         appid = None
 
-        if 'ApplicationIdentifierPrefix' in self.profile:
+        if len(self.profile) > 0 and 'ApplicationIdentifierPrefix' in self.profile:
             if len(self.profile['ApplicationIdentifierPrefix']) > 0:
                 bundleseed = self.profile['ApplicationIdentifierPrefix'][0]
         else:
@@ -476,7 +546,7 @@ class IntegrityCheck(object):
         if 'CFBundleIdentifier' in self.data:
             bundleid = self.data['CFBundleIdentifier']
 
-        if 'Entitlements' in self.profile:
+        if len(self.profile) > 0 and 'Entitlements' in self.profile:
             if 'application-identifier' in self.profile['Entitlements']:
                 appid = self.profile['Entitlements']['application-identifier']
             else:
@@ -550,7 +620,7 @@ class IntegrityCheck(object):
             self.errors['bundleid'] = True
 
     def check_bundle_seed(self):
-        if 'ApplicationIdentifierPrefix' in self.profile:
+        if len(self.profile) > 0 and 'ApplicationIdentifierPrefix' in self.profile:
             app_id_prefix = self.profile['ApplicationIdentifierPrefix']
             if len(app_id_prefix) >= 1:
                 if app_id_prefix[0].strip() == "":
@@ -561,9 +631,9 @@ class IntegrityCheck(object):
             self.errors['bundleseed'] = True
 
     def check_dist_method(self):
-        if 'ProvisionsAllDevices' in self.profile:
+        if len(self.profile) > 0 and 'ProvisionsAllDevices' in self.profile:
             self.ipa_info['enterprise'] = True
-        elif 'ProvisionedDevices' in self.profile:
+        elif len(self.profile) > 0 and 'ProvisionedDevices' in self.profile:
             self.ipa_info['adhoc'] = True
         else:
             self.errors['distmethod'] = True
@@ -720,7 +790,9 @@ class ParseIPA(object):
 
         data = {}
         if provision_filename == '':
-            self.errors.append({'code': -2001, 'label': 'Provision', 'description': 'embedded.mobileprovision file not found in IPA'})
+            # if platform.system() != 'Darwin':
+            #     self.errors.append({'code': -2001, 'label': 'Provision', 'description': 'embedded.mobileprovision file not found in IPA'})
+            pass
         else:
             content = zip_obj.read(provision_filename)
             match = ParseIPA.provision_xml_rx.search(content)
@@ -791,12 +863,24 @@ class MyOptionParser(optparse.OptionParser):
         return self.epilog
 # end MyOptionParser class
 
+def execute_cmd(cmd):
+    result_lines = []
+    try:
+        cmd_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        result_lines.extend(cmd_process.stdout.readlines())
+        result_lines.extend(cmd_process.stderr.readlines())
+        cmd_process.kill()   #need to kill?
+    except:
+        pass
+    return result_lines
+# end execute_cmd
+
 def get_options():
 
     error_in_output = '''
 For json output, error numbers as follow:
     -1001	Distribution    unknown distribution type
-    -2001	Provision	embedded.mobileprovision file not found in IPA
+    -2001	Provision	embedded.mobileprovision file not found in IPA (from v1.7, this is not an error on a Mac system)
     -2002	Provision	unable to parse embedded.mobileprovision file
     -2003	Payload		Payload folder is misnamed 'payload' (lower-case p). Rename to 'Payload'
     -2004	Payload		Found Applications directory instead of Payload
@@ -805,6 +889,7 @@ For json output, error numbers as follow:
     -9002	Checkipa	icon file can not be a directory
     -9003	Checkipa	not a valid zip archive
     -9004	Checkipa	The program 'plutil' is currently not installed
+    -9005	Checkipa	The program 'codesign' is currently not installed
 
 '''
 
@@ -969,6 +1054,13 @@ def main():
             msg = "The program 'plutil' is currently not installed. You can install it by typing:\n"
             msg += '           sudo apt-get install libplist-utils'
             errors.append({'code': -9004, 'label': 'Checkipa', 'description': msg})
+
+        # codesign command utility should be installed with Xcode. Just check it
+        if platform.system() == 'Darwin':
+            retval = os.system('which codesign >/dev/null')
+            if retval != 0:
+                msg = "The program 'codesign' is currently not installed."
+                errors.append({'code': -9005, 'label': 'Checkipa', 'description': msg})
 
     #---------------------------------------------------------------------
     # print out pre-parse errors
