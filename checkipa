@@ -304,6 +304,8 @@ class IntegrityCheck(object):
             ipa_type = 'Ad Hoc/Developer'
         elif self.ipa_info['enterprise'] and not self.ipa_info['adhoc']:
             ipa_type = 'Enterprise'
+        elif self.ipa_info['wildcard']:
+            ipa_type = 'Wildcard'
         else:
             jb_or_itunes_found = False
             if len(self.signature):
@@ -364,6 +366,8 @@ class IntegrityCheck(object):
             ipa_type = 'Ad Hoc/Developer'
         elif self.ipa_info['enterprise'] and not self.ipa_info['adhoc']:
             ipa_type = 'Enterprise'
+        elif self.ipa_info['wildcard']:
+            ipa_type = 'Wildcard'
         else:
             jb_or_itunes_found = False
             if len(self.signature):
