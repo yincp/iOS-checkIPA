@@ -52,6 +52,7 @@ import json
 import subprocess
 import platform
 import uuid
+from biplist import *
 
 DEFAULT_ENCODING = 'utf-8'
 VERSION_NUMBER = '1.7'
@@ -823,25 +824,29 @@ class ParseIPA(object):
             else:
                 self.errors.append({'code': -2005, 'label': 'PList', 'description': 'Info.plist file not found in IPA'})
         else:
-            content = zip_obj.read(plist_filename)
-            if (ParseIPA.xml_rx.match(content)):
-                data = plistlib.readPlistFromString(content)
-            else:
-                self.temp_directory = tempfile.mkdtemp()
-
-                zip_obj.extract(plist_filename, self.temp_directory)
-                fullpath_plist = os.path.join(self.temp_directory, plist_filename)
-
-                os_info = os.uname()
-                if os_info[0] == 'Linux':
-                    cmd = 'plutil -i "%s" -o "%s"' % (fullpath_plist, fullpath_plist)
-                else:
-                    cmd = 'plutil -convert xml1 "%s"' % (fullpath_plist)
-
-                # pprint(cmd)
-
-                os.system(cmd)
-                data = plistlib.readPlist(fullpath_plist)
+            # content = zip_obj.read(plist_filename)
+            # if (ParseIPA.xml_rx.match(content)):
+            #     data = plistlib.readPlistFromString(content)
+            # else:
+            #     self.temp_directory = tempfile.mkdtemp()
+			#
+            #     zip_obj.extract(plist_filename, self.temp_directory)
+            #     fullpath_plist = os.path.join(self.temp_directory, plist_filename)
+			#
+            #     os_info = os.uname()
+            #     if os_info[0] == 'Linux':
+            #         cmd = 'plutil -i "%s" -o "%s"' % (fullpath_plist, fullpath_plist)
+            #     else:
+            #         cmd = 'plutil -convert xml1 "%s"' % (fullpath_plist)
+			#
+            #     # pprint(cmd)
+			#
+            #     os.system(cmd)
+            #     data = plistlib.readPlist(fullpath_plist)
+            self.temp_directory = tempfile.mkdtemp()
+            zip_obj.extract(plist_filename, self.temp_directory)
+            fullpath_plist = os.path.join(self.temp_directory, plist_filename)
+            data = readPlist(fullpath_plist)
         # end if plist == ''
 
         self.info_plist_data = data
