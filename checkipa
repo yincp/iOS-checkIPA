@@ -307,6 +307,8 @@ class IntegrityCheck(object):
             ipa_type = 'Enterprise'
         elif self.ipa_info['wildcard']:
             ipa_type = 'Wildcard'
+        elif len(self.profile) > 0:
+            ipa_type = 'AppStore'
         else:
             jb_or_itunes_found = False
             if len(self.signature):
@@ -369,6 +371,8 @@ class IntegrityCheck(object):
             ipa_type = 'Enterprise'
         elif self.ipa_info['wildcard']:
             ipa_type = 'Wildcard'
+        elif len(self.profile) > 0:
+            ipa_type = 'AppStore'
         else:
             jb_or_itunes_found = False
             if len(self.signature):
@@ -640,6 +644,8 @@ class IntegrityCheck(object):
             self.ipa_info['enterprise'] = True
         elif len(self.profile) > 0 and 'ProvisionedDevices' in self.profile:
             self.ipa_info['adhoc'] = True
+        elif len(self.profile) > 0:
+            self.ipa_info['appstore'] = True
         else:
             self.errors['distmethod'] = True
 
@@ -726,7 +732,8 @@ class IntegrityCheck(object):
             "app_catalog": False,
             "wildcard": False,
             "enterprise": False,
-            "adhoc": False}
+            "adhoc": False,
+            "appstore": False}
     # end initializeResultsData
 
     def verbose_output(self):
