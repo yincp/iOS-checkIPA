@@ -53,6 +53,8 @@ import subprocess
 import platform
 import uuid
 from biplist import *
+from struct import *
+from zlib import *
 
 DEFAULT_ENCODING = 'utf-8'
 VERSION_NUMBER = '1.7'
@@ -411,7 +413,7 @@ class IntegrityCheck(object):
             for fname in filenames:
                 if regx3.search(fname):
                     output = open(self.icon_file, 'wb')
-                    output.write(zip_obj.read(fname))
+                    output.write(getNormalizedPNG(zip_obj.read(fname)))
                     output.close()
                     zip_obj.close()
                     self.icon_info = {'save': 'success', 'source': fname, 'file': self.icon_file}
@@ -419,7 +421,7 @@ class IntegrityCheck(object):
             for fname in filenames:
                 if regx2.search(fname):
                     output = open(self.icon_file, 'wb')
-                    output.write(zip_obj.read(fname))
+                    output.write(getNormalizedPNG(zip_obj.read(fname)))
                     output.close()
                     zip_obj.close()
                     self.icon_info = {'save': 'success', 'source': fname, 'file': self.icon_file}
@@ -427,7 +429,7 @@ class IntegrityCheck(object):
             for fname in filenames:
                 if regx.search(fname):
                     output = open(self.icon_file, 'wb')
-                    output.write(zip_obj.read(fname))
+                    output.write(getNormalizedPNG(zip_obj.read(fname)))
                     output.close()
                     zip_obj.close()
                     self.icon_info = {'save': 'success', 'source': fname, 'file': self.icon_file}
@@ -878,6 +880,114 @@ class MyOptionParser(optparse.OptionParser):
     def format_epilog(self, formatter):
         return self.epilog
 # end MyOptionParser class
+
+
+# rewrite from iPin.py by yincp
+# original Licence as following - http://www.axelbrz.com.ar/?mod=iphone-png-images-normalizer
+#---
+# iPIN - iPhone PNG Images Normalizer v1.0
+# Copyright (C) 2007
+#
+# Author:
+#  Axel E. Brzostowski
+#  http://www.axelbrz.com.ar/
+#  axelbrz@gmail.com
+#
+# References:
+#  http://iphone.fiveforty.net/wiki/index.php/PNG_Images
+#  http://www.libpng.org/pub/png/spec/1.2/PNG-Contents.html
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+#---
+def getNormalizedPNG(oldPNG):
+    pngheader = "\x89PNG\r\n\x1a\n"
+    if oldPNG[:8] != pngheader:
+        return None
+
+    newPNG = oldPNG[:8]
+
+    chunkPos = len(newPNG)
+    pendingIDATChunks = []
+
+    # For each chunk in the PNG file
+    while chunkPos < len(oldPNG):
+
+        # Reading chunk
+        chunkLength = oldPNG[chunkPos:chunkPos+4]
+        chunkLength = unpack(">L", chunkLength)[0]
+        chunkType = oldPNG[chunkPos+4 : chunkPos+8]
+        chunkData = oldPNG[chunkPos+8:chunkPos+8+chunkLength]
+        chunkCRC = oldPNG[chunkPos+chunkLength+8:chunkPos+chunkLength+12]
+        chunkCRC = unpack(">L", chunkCRC)[0]
+        chunkPos += chunkLength + 12
+
+        # Parsing the header chunk
+        if chunkType == "IHDR":
+            width = unpack(">L", chunkData[0:4])[0]
+            height = unpack(">L", chunkData[4:8])[0]
+
+        # Parsing the image chunk
+        if chunkType == "IDAT":
+            try:
+                # Uncompressing the image chunk
+                bufSize = width * height * 4 + height
+                if pendingIDATChunks:
+                    chunkData = decompress( ''.join(pendingIDATChunks) + chunkData, -8, bufSize)
+                else:
+                    chunkData = decompress( chunkData, -8, bufSize)
+
+            except Exception, e:
+                # The PNG image is normalized
+                # yincp M
+                pendingIDATChunks.append(chunkData)
+                continue
+                # return oldPNG
+            else:
+                pendingIDATChunks = []
+
+            # Swapping red & blue bytes for each pixel
+            newdata = ""
+            for y in xrange(height):
+                i = len(newdata)
+                newdata += chunkData[i]
+                for x in xrange(width):
+                    i = len(newdata)
+                    newdata += chunkData[i+2]
+                    newdata += chunkData[i+1]
+                    newdata += chunkData[i+0]
+                    newdata += chunkData[i+3]
+
+            # Compressing the image chunk
+            chunkData = newdata
+            chunkData = compress( chunkData )
+            chunkLength = len( chunkData )
+            chunkCRC = crc32(chunkType)
+            chunkCRC = crc32(chunkData, chunkCRC)
+            chunkCRC = (chunkCRC + 0x100000000) % 0x100000000
+
+        # Removing CgBI chunk
+        if chunkType != "CgBI":
+            newPNG += pack(">L", chunkLength)
+            newPNG += chunkType
+            if chunkLength > 0:
+                newPNG += chunkData
+            newPNG += pack(">L", chunkCRC)
+
+        # Stopping the PNG file parsing
+        if chunkType == "IEND":
+            if pendingIDATChunks:
+                return oldPNG
+            break
+
+    return newPNG
 
 def execute_cmd(cmd):
     result_lines = []
