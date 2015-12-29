@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+#coding=UTF-8
 #
 # Scan IPA file and parse its Info.plist and embedded.mobileprovision
 # files. Perform checks of expected key/value relationships and report
@@ -55,6 +56,7 @@ import uuid
 from biplist import *
 from struct import *
 from zlib import *
+import math
 
 DEFAULT_ENCODING = 'utf-8'
 VERSION_NUMBER = '1.7'
@@ -882,31 +884,10 @@ class MyOptionParser(optparse.OptionParser):
 # end MyOptionParser class
 
 
-# rewrite from iPin.py by yincp
-# original Licence as following - http://www.axelbrz.com.ar/?mod=iphone-png-images-normalizer
-#---
-# iPIN - iPhone PNG Images Normalizer v1.0
-# Copyright (C) 2007
+# normalize a png data, by yincp
+# derived from iPin.py
+# original Licence - http://www.axelbrz.com.ar/?mod=iphone-png-images-normalizer
 #
-# Author:
-#  Axel E. Brzostowski
-#  http://www.axelbrz.com.ar/
-#  axelbrz@gmail.com
-#
-# References:
-#  http://iphone.fiveforty.net/wiki/index.php/PNG_Images
-#  http://www.libpng.org/pub/png/spec/1.2/PNG-Contents.html
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-#---
 def getNormalizedPNG(oldPNG):
     pngheader = "\x89PNG\r\n\x1a\n"
     if oldPNG[:8] != pngheader:
@@ -916,6 +897,8 @@ def getNormalizedPNG(oldPNG):
 
     chunkPos = len(newPNG)
     pendingIDATChunks = []
+    isAdam7 = False
+    isCgBI = False
 
     # For each chunk in the PNG file
     while chunkPos < len(oldPNG):
@@ -931,19 +914,24 @@ def getNormalizedPNG(oldPNG):
 
         # Parsing the header chunk
         if chunkType == "IHDR":
+            # yincp +, 如果读到了IHDR而未读到CgBI，认为是普通格式，不需要转换
+            if not isCgBI:
+                return oldPNG
+
             width = unpack(">L", chunkData[0:4])[0]
             height = unpack(">L", chunkData[4:8])[0]
+            isAdam7 = True if ord(chunkData[12]) == 1 else False
 
         # Parsing the image chunk
         if chunkType == "IDAT":
             try:
                 # Uncompressing the image chunk
-                bufSize = width * height * 4 + height
+                # 此处有冗余，隔行扫描的情况下，应该最多是height的1.875倍，但是如果height不是8的倍数，会有部分超出，此处简单处理
+                bufSize = width * height * 4 + height * 2
                 if pendingIDATChunks:
                     chunkData = decompress( ''.join(pendingIDATChunks) + chunkData, -8, bufSize)
                 else:
                     chunkData = decompress( chunkData, -8, bufSize)
-
             except Exception, e:
                 # The PNG image is normalized
                 # yincp M
@@ -954,19 +942,10 @@ def getNormalizedPNG(oldPNG):
                 pendingIDATChunks = []
 
             # Swapping red & blue bytes for each pixel
-            newdata = ""
-            for y in xrange(height):
-                i = len(newdata)
-                newdata += chunkData[i]
-                for x in xrange(width):
-                    i = len(newdata)
-                    newdata += chunkData[i+2]
-                    newdata += chunkData[i+1]
-                    newdata += chunkData[i+0]
-                    newdata += chunkData[i+3]
+            # rewrite by yincp
+            chunkData = reverseCgBI(chunkData, width, height, isAdam7)
 
             # Compressing the image chunk
-            chunkData = newdata
             chunkData = compress( chunkData )
             chunkLength = len( chunkData )
             chunkCRC = crc32(chunkType)
@@ -980,14 +959,54 @@ def getNormalizedPNG(oldPNG):
             if chunkLength > 0:
                 newPNG += chunkData
             newPNG += pack(">L", chunkCRC)
+        else:
+            isCgBI = True
 
         # Stopping the PNG file parsing
         if chunkType == "IEND":
-            if pendingIDATChunks:
-                return oldPNG
             break
 
     return newPNG
+
+def reverseCgBI(data, width, height, isAdam7):
+    newdata = ''
+    if isAdam7:
+        # 隔行扫描
+        _adam7 = ((0, 0, 8, 8),
+                  (4, 0, 8, 8),
+                  (0, 4, 4, 8),
+                  (2, 0, 4, 4),
+                  (0, 2, 2, 4),
+                  (1, 0, 2, 2),
+                  (0, 1, 1, 2))
+        for xstart, ystart, xstep, ystep in _adam7:
+            if xstart >= width:
+                continue
+            # Pixels per row
+            ppr = int(math.ceil((width - xstart) / float(xstep)))
+            for y in range(ystart, height, ystep):
+                i = len(newdata)
+                newdata += data[i]
+                for x in xrange(ppr):
+                    i = len(newdata)
+                    newdata += data[i+2]
+                    newdata += data[i+1]
+                    newdata += data[i+0]
+                    newdata += data[i+3]
+
+    else:
+        # 逐行扫描
+        tmp = ''
+        for y in xrange(height):
+            i = len(newdata)
+            newdata += data[i]
+            for x in xrange(width):
+                i = len(newdata)
+                newdata += data[i+2]
+                newdata += data[i+1]
+                newdata += data[i+0]
+                newdata += data[i+3]
+    return newdata
 
 def execute_cmd(cmd):
     result_lines = []
