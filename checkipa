@@ -123,11 +123,13 @@ class IntegrityCheck(object):
         self.ipa_filename = params['ipa_filename']
         self.jformat = params['jformat']
         self.icon_file = params['icon_file']
+        self.exec_file = params['exec_file']
 
         self.warnings = {}
         self.errors = {}
         self.ipa_info = {}
         self.icon_info = {}
+        self.exec_info = {}
         self.signature = []
 
         self._initialize_results_data()
@@ -141,6 +143,9 @@ class IntegrityCheck(object):
 
         if params['icon_file'] is not None:
             self.save_icon()
+
+        if params['exec_file'] is not None:
+            self.save_exec()
 
         if len(self.profile) == 0:
             self.detect_exec_signature_when_no_provision()
@@ -394,7 +399,7 @@ class IntegrityCheck(object):
         self.ipa_info['ipa_type'] = ipa_type
 
         jobj = {'code': 0, 'data': self.data, 'profile': self.profile, 'ipa': self.ipa_info,
-                'warnings': report_warnings, 'errors': report_errors, 'icon': self.icon_info}
+                'warnings': report_warnings, 'errors': report_errors, 'icon': self.icon_info, 'exec': self.exec_info}
         # pprint(jobj)
         print json.dumps(jobj, cls=MyJsonEncoder, indent=4)
     # end output_json
@@ -441,6 +446,28 @@ class IntegrityCheck(object):
             return
         self.icon_info = {'save': 'failed', 'msg': 'can not find icon file in ipa'}
     # end save_icon
+
+    def save_exec(self):
+        try:
+            if self.exec_file and os.path.exists(self.exec_file):
+                os.remove(self.exec_file)
+            exec_name = self.data['CFBundleExecutable']
+            zip_obj = zipfile.ZipFile(self.ipa_filename, 'r')
+            regx = re.compile(r'Payload/[^/]+\.app/%s$' % exec_name)
+            filenames = zip_obj.namelist()
+            for fname in filenames:
+                if regx.search(fname):
+                    output = open(self.exec_file, 'wb')
+                    output.write(zip_obj.read(fname))
+                    output.close()
+                    zip_obj.close()
+                    self.exec_info = {'save': 'success', 'source': fname, 'file': self.exec_file}
+                    return
+        except Exception, e:
+            self.exec_info = {'save': 'failed', 'msg': e.message}
+            return
+        self.exec_info = {'save': 'failed', 'msg': 'cannot find executable file'}
+    # end save_exec
 
     def get_icon(self):
         try:
@@ -1060,12 +1087,14 @@ For json output, error numbers as follow:
                     ''')
 
     optp.add_option('-x', '--extract-icon', action='store', dest='icon_file',
-                    help='''specifid filename which icon will be saved
-
-
+                    help='''specified filename which icon will be saved
                     ''')
 
-    optp.set_usage('checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>]')
+    optp.add_option('-e', '--extract-executable', action='store', dest='exec_file',
+                    help='''specified filename which executable will be saved
+                    ''')
+
+    optp.set_usage('checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>] [-e <filename>]')
     optp.set_description('''Uesed to check and extract infomations from Info.plist and mobileprovision in ipa file,
 forked from https://github.com/apperian/iOS-checkIPA.
 In addtion, json output and extracting icon option are added by Yincp.
@@ -1125,7 +1154,7 @@ def process_ipa(params):
             params = {'info': parse.info_plist_data,
                       'mobileprovision': parse.provision_data,
                       'verbose': verbose, 'ipa_filename': ipa_filename,
-                      'jformat': jformat, 'icon_file': icon_file}
+                      'jformat': jformat, 'icon_file': icon_file, 'exec_file': params['exec_file']}
             IntegrityCheck(params)
         # end if check_udids
 
@@ -1155,6 +1184,7 @@ def main():
     udids = options.udids
     jformat = options.json_format
     icon_file = options.icon_file
+    exec_file = options.exec_file
 
     if udids is None or udids == "":
         check_udids = False
@@ -1182,6 +1212,11 @@ def main():
     if icon_file is not None:
         if os.path.isdir(icon_file):
             errors.append({'code': -9002, 'label': 'Checkipa', 'description': 'icon file can not be a directory'})
+
+    # check whether exec_file is a directory
+    if exec_file is not None:
+        if os.path.isdir(exec_file):
+            errors.append({'code': -9002, 'label': 'Checkipa', 'description': 'exec file can not be a directory'})
 
     #---------------------------------------------------------------------
     # Instantiate class and perform basic checks before parsing
@@ -1217,12 +1252,13 @@ def main():
             print('')
             for error in errors:
                 print('    Error: %s' % (error['description']))
-            print("""\n    Usage: checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>]
+            print("""\n    Usage: checkipa -i <filename> [-u "udid udid"] [-v] [-j] [-x <filename>] [-e <filename>]
         -i --ipafile <filename>         specify a ipa file
         -u --udids <udids>              check where every udid is in ipa's mobileprovision file. multi-udids seperated by a Blank.
         -v --verbose                    output verbose infomations
         -j --json                       output with json format. !!Note that -u and -v will NOT effort if -j is set!!
         -x --extract-icon <filename>    extract a most suitable icon and save as the specified filename
+        -e --extract-executable <filename> extract the executable and save as the specified filename
             """)
         sys.exit(-1)
     # end if errors
@@ -1233,7 +1269,7 @@ def main():
     params = {'parse': parse, 'ipa_filename': ipa_filename,
               'check_udids': check_udids, 'udids': udids,
               'verbose': verbose, 'jformat': jformat,
-              'icon_file': icon_file}
+              'icon_file': icon_file, 'exec_file': exec_file}
     process_ipa(params)
 # end main()
 
