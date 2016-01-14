@@ -1111,6 +1111,8 @@ In addtion, json output and extracting icon option are added by Yincp.
     -9002	Checkipa		icon file can not be a directory
     -9003	Checkipa		not a valid zip archive
     -9004	Checkipa		The program 'plutil' is currently not installed
+    -9005	Checkipa	    The program 'codesign' is currently not installed
+
                     '''
 
     opts_args = optp.parse_args()
@@ -1229,11 +1231,11 @@ def main():
 
         # Mac OS already should have the plutil command utility installed.
         # The following message is primarily for (Debian-based) Linux systems.
-        retval = os.system('which plutil >/dev/null')
-        if retval != 0:
-            msg = "The program 'plutil' is currently not installed. You can install it by typing:\n"
-            msg += '           sudo apt-get install libplist-utils'
-            errors.append({'code': -9004, 'label': 'Checkipa', 'description': msg})
+        # retval = os.system('which plutil >/dev/null')
+        # if retval != 0:
+        #     msg = "The program 'plutil' is currently not installed. You can install it by typing:\n"
+        #     msg += '           sudo apt-get install libplist-utils'
+        #     errors.append({'code': -9004, 'label': 'Checkipa', 'description': msg})
 
         # codesign command utility should be installed with Xcode. Just check it
         if platform.system() == 'Darwin':
