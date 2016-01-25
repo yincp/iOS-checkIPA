@@ -478,23 +478,22 @@ class IntegrityCheck(object):
                     if primary_icon and primary_icon.has_key('CFBundleIconFiles'):
                         icon_files = primary_icon['CFBundleIconFiles']
                         if icon_files and isinstance(icon_files, list):
-                            pIconPixels = re.compile(r'\S+(\d{2,3})x(?(1))')
+                            pIconPixels = re.compile(r'\S+(\d{2,3})x(?(1))|\S+\-(\d{2,3})')
                             max_pixel = 0
                             max_index = -1
                             i = 0
                             for file in icon_files:
                                 m = pIconPixels.match(file)
                                 if m:
-                                    pixel = int(m.group(1))
+                                    pixel = int(m.group(1) if m.group(1) is not None else m.group(2))
                                     if pixel > max_pixel:
                                         max_pixel = pixel
                                         max_index = i
                                 i += 1
                             if max_pixel > 0 and max_index >= 0:
                                 return icon_files[max_index]
-                            if len(icon_files > 0):
-                                return icon_files[0]
-
+                            if len(icon_files) > 0:
+                                return icon_files[len(icon_files) - 1]
         except:
             pass
         return 'icon'
