@@ -414,6 +414,7 @@ class IntegrityCheck(object):
             regx = re.compile(r'Payload/[^/]+\.app/%s.png' % icon_iden, re.I)
             regx2 = re.compile(r'Payload/[^/]+\.app/%s@2x.png' % icon_iden, re.I)
             regx3 = re.compile(r'Payload/[^/]+\.app/%s@3x.png' % icon_iden, re.I)
+            regx4 = re.compile(r'Payload/[^/]+\.app/%s\-(\d{2,3}).png' % icon_iden, re.I)
 
             filenames = zip_obj.namelist()
             filename = ''
@@ -441,6 +442,22 @@ class IntegrityCheck(object):
                     zip_obj.close()
                     self.icon_info = {'save': 'success', 'source': fname, 'file': self.icon_file}
                     return
+            maxW = -1
+            maxName = None
+            for fname in filenames:
+                m = regx4.match(fname)
+                if m is not None:
+                    w = int(m.group(1))
+                    if w > maxW:
+                        maxW = w
+                        maxName = fname
+            if maxW > -1:
+                output = open(self.icon_file, 'wb')
+                output.write(getNormalizedPNG(zip_obj.read(maxName)))
+                output.close()
+                zip_obj.close()
+                self.icon_info = {'save': 'success', 'source': maxName, 'file': self.icon_file}
+                return
         except Exception, e:
             self.icon_info = {'save': 'failed', 'msg': e.message}
             return
