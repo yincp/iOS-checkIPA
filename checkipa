@@ -414,7 +414,7 @@ class IntegrityCheck(object):
             regx = re.compile(r'Payload/[^/]+\.app/%s.png' % icon_iden, re.I)
             regx2 = re.compile(r'Payload/[^/]+\.app/%s@2x.png' % icon_iden, re.I)
             regx3 = re.compile(r'Payload/[^/]+\.app/%s@3x.png' % icon_iden, re.I)
-            regx4 = re.compile(r'Payload/[^/]+\.app/%s\-(\d{2,3}).png' % icon_iden, re.I)
+            regx4 = re.compile(r'Payload/[^/]+\.app/%s\-?(\d{2,3}).png' % icon_iden, re.I)
 
             filenames = zip_obj.namelist()
             filename = ''
