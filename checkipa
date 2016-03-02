@@ -406,6 +406,11 @@ class IntegrityCheck(object):
 
     def save_icon(self):
         icon_iden = self.get_icon()
+        regx = re.compile(r'(.*?)(\@.*)?\.png')
+        m = regx.match(icon_iden)
+        if m is not None:
+            icon_iden = m.group(1)
+
         try:
             if self.icon_file and os.path.isfile(self.icon_file):
                 os.remove(self.icon_file)
